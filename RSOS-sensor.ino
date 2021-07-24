@@ -1,6 +1,15 @@
 // -*- C -*-
 
-// Reference: https://www.osengr.org/WxShield/Downloads/Weather-Sensor-RF-Protocols.pdf
+/* Created 2021 Jun 26 by Chris Osborn <fozztexx@fozztexx.com>
+ * http://insentricity.com
+ *
+ * Receives and decodes the temperature sensor data sent from a Radio
+ * Shack/Oregon Scientific temperature probe over 433MHz.
+ *
+ * Reference: https://www.osengr.org/WxShield/Downloads/Weather-Sensor-RF-Protocols.pdf
+ *
+ * This code is placed in the public domain (or CC0 licensed, at your option).
+ */
 
 #define RCV_PIN   7
 #define RINGLEN   256
@@ -97,8 +106,8 @@ void setup()
 
   while (!Serial)
     ;
+
   Serial.println("Started.");
-  
   return;
 }
 
@@ -115,7 +124,7 @@ void ring_dump(int idx, int len)
   return;
 }
 
-unsigned int decode(unsigned int start, boolean half, const unsigned int *rflen)
+unsigned int decode(unsigned int start, boolean inverse_double, const unsigned int *rflen)
 {
   unsigned int idx, count, bit_group, bit_idx;
   long dur, delta_s, delta_l;
@@ -132,7 +141,7 @@ unsigned int decode(unsigned int start, boolean half, const unsigned int *rflen)
       break;
     bv = 1 - idx & 1;
     group = bv;
-    group ^= 1 - half;
+    group ^= 1 - inverse_double;
     group *= 2;
     delta_s = rflen[group];
     delta_s -= dur;
@@ -141,91 +150,25 @@ unsigned int decode(unsigned int start, boolean half, const unsigned int *rflen)
     delta_l -= dur;
     delta_l = abs(delta_l);
     if (delta_s > DELTA_MAX && delta_l > DELTA_MAX) {
-#if 0
-      Serial.print("BAD DUR ");
-      Serial.print(dur);
-      Serial.print("  idx: ");
-      Serial.print(idx);
-      Serial.print("  half: ");
-      Serial.print(half);
-      Serial.print("  group: ");
-      Serial.print(group);
-      Serial.print("  bv: ");
-      Serial.print(bv);
-      Serial.print("  delta: ");
-      Serial.print(delta_s);
-      Serial.print(" ");
-      Serial.print(delta_l);
-      Serial.println();
-#endif
       break;
     }
 
-#if 0
-    Serial.print(delta_l < DELTA_MAX ? 'L' : 'S');
-#endif
     if (delta_l < DELTA_MAX || !skip) {
-#if 0
-      byte chk;
-      Serial.print(dur);
-      Serial.print(delta_l < DELTA_MAX ? 'L' : 'S');
-      Serial.print(bv);
-      Serial.print(" ");
-      chk = !half || (count & 1) == 0;
-      Serial.print(chk);
-      Serial.print(" ");
-#endif
-      if (!half || (count & 1) == 0) {
+      if (!inverse_double || (count & 1) == 0) {
         bit_idx = count;
-        if (half)
+        if (inverse_double)
           bit_idx /= 2;
-#if 0
-        Serial.print(" C:");
-        Serial.print(bit_idx);
-#endif
         bit_group = bit_idx / (sizeof(decode_buf[0]) * 8);
         bit_idx %= sizeof(decode_buf[0]) * 8;
-#if 0
-        Serial.print("_G:");
-        Serial.print(bit_group);
-        Serial.print("_I:");
-        Serial.print(bit_idx);
-        Serial.print(" ");
-#endif
         decode_buf[bit_group] |= bv << bit_idx;
-#if 0
-        Serial.print(decode_buf[bit_group], HEX);
-        Serial.print(" ");
-        #if 0
-        Serial.print((unsigned long) val, HEX);
-        Serial.print("+");
-        #endif
-        Serial.print(bv);
-#endif
       }
-#if 0
-      else
-        Serial.print(" ");
-#endif
       skip = 1;
       count++;
     }
     else {
       skip = 0;
-#if 0
-      Serial.print(" ");
-#endif
     }
   }
-
-#if 0
-  Serial.println();
-  Serial.print("Bit count: ");
-  Serial.print(count);
-  Serial.print(" ");
-  print_bits();
-  Serial.println();
-#endif
 
   return count;
 }
@@ -298,12 +241,6 @@ void loop()
     Serial.print(millis());
     Serial.println();
 
-#if 0
-    Serial.print("Sync start: ");
-    Serial.print(ringbuf[sync_idx]);
-    Serial.println();
-#endif
-    
     if (sync_type == 1) {
       decode(sync_idx + 1, false, bitlen_v1);
       if (ringbuf[sync_idx] > 5300)
@@ -311,19 +248,13 @@ void loop()
     }
     else if (sync_type == 2) {
       int idx;
+
+
       idx = sync_idx - array_size(sync_v2);
-#if 0
-      ring_dump((idx + RINGLEN) % RINGLEN, ringpos - idx);
-#endif
       decode(sync_idx - 2, true, bitlen_v2);
       shift_bits(-4);
     }
 
-#if 1
-    print_bits();
-    Serial.println();
-#endif
-    
     val = decode_buf[3];
     val <<= sizeof(decode_buf[2]) * 8;
     val |= decode_buf[2];
@@ -331,15 +262,6 @@ void loop()
     val |= decode_buf[1];
     val <<= sizeof(decode_buf[0]) * 8;
     val |= decode_buf[0];
-
-#if 0
-    Serial.print("0x");
-    Serial.print((unsigned long) (val >> 32), HEX);
-    Serial.print((unsigned long) val, HEX);
-    Serial.print(" ");
-    Serial.print(sync_type);
-    Serial.println();
-#endif
 
     {
       byte channel;
@@ -355,7 +277,7 @@ void loop()
 
       neg = 1;
       if (sync_type == 2) {
-        device_id = val &0xffff;
+        device_id = val & 0xffff;
         for (idx = (val >> 16) & 0xf, channel = 0; idx; channel++, idx >>= 1)
           ;
         if (channel)
