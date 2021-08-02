@@ -1,4 +1,4 @@
-// -*- C -*-
+// -*- mode: C; indent-tabs-mode: nil -*-
 
 /* Created 2021 Jun 26 by Chris Osborn <fozztexx@fozztexx.com>
  * http://insentricity.com
@@ -11,7 +11,7 @@
  * This code is placed in the public domain (or CC0 licensed, at your option).
  */
 
-#define RCV_PIN   7
+#define RCV_PIN   16
 #define RINGLEN   256
 #define DELTA_MAX 300
 #define GAP       8000
@@ -35,6 +35,12 @@ const unsigned int sync_v2[] = {bitlen_v2[1], bitlen_v2[3], bitlen_v2[1], bitlen
                                 bitlen_v2[0]};
 #define array_size(x)     (sizeof(x) / sizeof(x[0]))
 
+typedef struct {
+  byte channel, flags, battery_low;
+  int celsius;
+  unsigned int rolling_code, checksum, device_id;
+} sensor_data;
+  
 boolean found_sync(const unsigned int *pattern, unsigned int slen, unsigned int delta_max)
 {
   unsigned int chkpos;
@@ -100,14 +106,22 @@ void sig_rx()
 
 void setup() 
 {
-  Serial.begin(9600);
+  Serial.begin(115200);
   pinMode(RCV_PIN, INPUT);
-  attachInterrupt(digitalPinToInterrupt(RCV_PIN), sig_rx, CHANGE);
 
   while (!Serial)
     ;
 
   Serial.println("Started.");
+
+  setup_mqtt();
+
+  // WiFi enabled causes so much interference that sensor signal can't be received
+  disable_wifi();
+
+  // Must attach interrupt after WiFi is connected
+  attachInterrupt(digitalPinToInterrupt(RCV_PIN), sig_rx, CHANGE);
+
   return;
 }
 
@@ -233,6 +247,8 @@ void loop()
   static int count = 0;
   uint64_t val;
 
+
+  //mqtt_loop();
   
   if (received) {
     Serial.print("Count: ");
@@ -264,94 +280,99 @@ void loop()
     val |= decode_buf[0];
 
     {
-      byte channel;
       byte celsius_l, celsius_m, celsius_h;
-      byte flags;
-      byte battery;
-      unsigned int rolling_code, checksum, checksum_calc;
-      int celsius, neg;
+      unsigned int checksum_calc = 0xAA55;
+      int neg;
       int fahrenheit;
-      unsigned int device_id;
       int idx;
+      sensor_data tdata;
 
 
       neg = 1;
       if (sync_type == 2) {
-        device_id = val & 0xffff;
-        for (idx = (val >> 16) & 0xf, channel = 0; idx; channel++, idx >>= 1)
+        tdata.device_id = val & 0xffff;
+        for (idx = (val >> 16) & 0xf, tdata.channel = 0; idx; tdata.channel++, idx >>= 1)
           ;
-        if (channel)
-          channel--;
+        if (tdata.channel)
+          tdata.channel--;
        
-        rolling_code = (val >> 20) & 0xff;
-        flags = (val >> 28) & 0xf;
+        tdata.rolling_code = (val >> 20) & 0xff;
+        tdata.flags = (val >> 28) & 0xf;
 
-        if (device_id == 0x04ce) {
+        if (tdata.device_id == 0x04ce) {
           celsius_l = (val >> 32) & 0xf;
           celsius_m = (val >> 36) & 0xf;
           celsius_h = (val >> 40) & 0xf;
           if ((val >> 44) & 0xf)
             neg = -1;
 
-          battery = (flags & 0x4) >> 2;
+          tdata.battery_low = (tdata.flags & 0x4) >> 2;
 
-          checksum = (val >> 48) & 0xff;
+          tdata.checksum = (val >> 48) & 0xff;
           for (idx = checksum_calc = 0; idx < 48; idx += 4)
             checksum_calc += (val >> idx) & 0xf;
           checksum_calc &= 0xff;
         }
       }
       else {
-        device_id = 0;
-        rolling_code = val & 0xf;
+        tdata.device_id = 0;
+        tdata.rolling_code = val & 0xf;
         
-        channel = (val >> 6) & 0x3;
+        tdata.channel = (val >> 6) & 0x3;
         
-        flags = (val >> 4) & 0x3;
-        flags <<= 4;
-        flags |= (val >> 20) & 0xf;
+        tdata.flags = (val >> 4) & 0x3;
+        tdata.flags <<= 4;
+        tdata.flags |= (val >> 20) & 0xf;
         
         celsius_l = (val >> 8) & 0xf;
         celsius_m = (val >> 12) & 0xf;
         celsius_h = (val >> 16) & 0xf;
-        if (flags & 0x2)
+        if (tdata.flags & 0x2)
           neg = -1;
         
-        battery = (flags & 0x8) >> 3;
+        tdata.battery_low = (tdata.flags & 0x8) >> 3;
 
-        checksum = (val >> 24) & 0xff;
+        tdata.checksum = (val >> 24) & 0xff;
         checksum_calc = (val & 0xFF) + ((val >> 8) & 0xff) + ((val >> 16) & 0xff);
         checksum_calc &= 0xff;
       }
 
-      celsius = celsius_h * 100 + celsius_m * 10 + celsius_l;
-      celsius *= neg;
-      fahrenheit = (celsius * 9 + 1602) / 5;
+      tdata.celsius = celsius_h * 100 + celsius_m * 10 + celsius_l;
+      tdata.celsius *= neg;
+      fahrenheit = (tdata.celsius * 9 + 1602) / 5;
       
       Serial.print("Temp: ");
-      Serial.print(celsius / 10);
+      Serial.print(tdata.celsius / 10);
       Serial.print(".");
-      Serial.print(abs(celsius % 10));
+      Serial.print(abs(tdata.celsius % 10));
       Serial.print("C ");
       Serial.print(fahrenheit / 10);
       Serial.print(".");
       Serial.print(abs(fahrenheit % 10));
       Serial.print("F  Channel: ");
-      Serial.print(channel + 1);
+      Serial.print(tdata.channel + 1);
       Serial.print("  Device: ");
-      Serial.print(device_id, HEX);
+      Serial.print(tdata.device_id, HEX);
       Serial.print("  Battery: ");
-      Serial.print(battery ? "low" : "good");
+      Serial.print(tdata.battery_low ? "low" : "good");
       Serial.print("  Flags: 0b");
-      Serial.print(flags, BIN);
+      Serial.print(tdata.flags, BIN);
       Serial.print("  RC: 0x");
-      Serial.print(rolling_code, HEX);
+      Serial.print(tdata.rolling_code, HEX);
       Serial.print("  Checksum: 0x");
-      Serial.print(checksum, HEX);
+      Serial.print(tdata.checksum, HEX);
       Serial.print(" 0x");
       Serial.print(checksum_calc, HEX);
       Serial.println();
       Serial.println();
+
+      if (tdata.checksum == checksum_calc) {
+        detachInterrupt(digitalPinToInterrupt(RCV_PIN));
+        enable_wifi();
+        publishTemperature(&tdata);
+        disable_wifi();
+        attachInterrupt(digitalPinToInterrupt(RCV_PIN), sig_rx, CHANGE);
+      }
     }
     
     sync_idx = -1;
