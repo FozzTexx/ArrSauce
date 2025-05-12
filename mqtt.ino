@@ -1,6 +1,6 @@
 // -*- mode: C; indent-tabs-mode: nil -*-
 
-/* Created 2021 Jul 224 by Chris Osborn <fozztexx@fozztexx.com>
+/* Created 2021 Jul 24 by Chris Osborn <fozztexx@fozztexx.com>
  * http://insentricity.com
  *
  * Handles connecting to WiFi and the MQTT broker.
@@ -39,6 +39,8 @@ void setup_wifi()
 
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
+  WiFi.config(IPAddress(10, 4, 0, 241), IPAddress(10, 4, 0, 1),
+              IPAddress(255, 255, 255, 0), IPAddress(10, 4, 0, 1));
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
   while (retries && WiFi.status() != WL_CONNECTED) {
@@ -210,15 +212,18 @@ void publishTemperature(sensor_data *tdata)
            ",\"flags\":%i"
            ",\"battery_low\":%s"
            ",\"celsius\":%i.%i"
+           ",\"humidity\":%i.%i"
            ",\"rolling_code\":%i"
            ",\"checksum\":%i"
+           ",\"calculated_checksum\":%i"
            ",\"device_id\":%i"
            ",\"timestamp\":\"%s\"}",
            uid, tdata->channel + 1,
            tdata->flags, tdata->battery_low ? "true" : "false",
            tdata->celsius / 10, abs(tdata->celsius % 10),
-           tdata->rolling_code, tdata->checksum, tdata->device_id,
-           tbuf);
+           tdata->humidity / 10, abs(tdata->humidity % 10),
+           tdata->rolling_code, tdata->checksum, tdata->calculated_checksum,
+           tdata->device_id, tbuf);
   // Make sure there's always a terminating NULL
   buf[sizeof(buf)-1] = 0;
 

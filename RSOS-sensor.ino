@@ -11,11 +11,16 @@
  * This code is placed in the public domain (or CC0 licensed, at your option).
  */
 
+#include <DHTStable.h>
+
 #define RCV_PIN   16
 #define RINGLEN   256
 #define DELTA_MAX 300
 #define GAP       8000
 #define MAXBITS   128
+#define DHT_PIN   21
+
+DHTStable DHT;
 
 volatile int sync_idx = -1;
 volatile byte sync_type;
@@ -37,10 +42,11 @@ const unsigned int sync_v2[] = {bitlen_v2[1], bitlen_v2[3], bitlen_v2[1], bitlen
 
 typedef struct {
   byte channel, flags, battery_low;
-  int celsius;
+  int celsius, humidity;
   unsigned int rolling_code, checksum, device_id;
+  unsigned int calculated_checksum;
 } sensor_data;
-  
+
 boolean found_sync(const unsigned int *pattern, unsigned int slen, unsigned int delta_max)
 {
   unsigned int chkpos;
@@ -82,7 +88,7 @@ void sig_rx()
       ringpos = (ringpos + 1) % RINGLEN;
       merge_next = false;
     }
-    
+
     if (sync_idx >= 0 && ringpos == sync_idx)
       sync_idx = -1;
 
@@ -94,17 +100,17 @@ void sig_rx()
       sync_idx = ringpos;
       sync_type = 2;
     }
-    
+
     if (dur > GAP && sync_idx >= 0)
       received = 1;
   }
 
   last = now;
-    
+
   return;
 }
 
-void setup() 
+void setup()
 {
   Serial.begin(115200);
   pinMode(RCV_PIN, INPUT);
@@ -148,7 +154,7 @@ unsigned int decode(unsigned int start, boolean inverse_double, const unsigned i
 
   for (idx = 0; idx < array_size(decode_buf); idx++)
     decode_buf[idx] = 0;
-    
+
   for (idx = skip = count = 0; idx < RINGLEN; idx++) {
     dur = ringbuf[(start + idx) % RINGLEN];
     if (dur > GAP)
@@ -184,6 +190,8 @@ unsigned int decode(unsigned int start, boolean inverse_double, const unsigned i
     }
   }
 
+  ring_dump(start, idx);
+
   return count;
 }
 
@@ -191,7 +199,7 @@ void shift_bits(int distance)
 {
   unsigned int idx, mask, bits, pad;
 
-  
+
   if (!distance)
     return;
   if (distance < 0) {
@@ -200,7 +208,7 @@ void shift_bits(int distance)
     distance = abs(distance);
     mask = (1 << distance) - 1;
     pad = sizeof(decode_buf[idx]) * 8 - distance;
-    
+
     for (idx = 0; idx < array_size(decode_buf); idx++) {
       decode_buf[idx] >>= distance;
       if (idx < array_size(decode_buf) - 1) {
@@ -216,7 +224,7 @@ void shift_bits(int distance)
     mask = (1 << distance) - 1;
     pad = sizeof(decode_buf[idx]) * 8 - distance;
     mask <<= pad;
-    
+
     for (idx = array_size(decode_buf); idx > 0; idx--) {
       decode_buf[idx - 1] <<= distance;
       if (idx > 1) {
@@ -238,23 +246,76 @@ void print_bits()
   Serial.print("0x");
   for (idx = 0; idx < array_size(decode_buf); idx++)
     Serial.print(decode_buf[array_size(decode_buf) - idx - 1], HEX);
-    
+
   return;
 }
 
-void loop() 
+void publish_data(sensor_data *data)
+{
+  detachInterrupt(digitalPinToInterrupt(RCV_PIN));
+  enable_wifi();
+  publishTemperature(data);
+  disable_wifi();
+  attachInterrupt(digitalPinToInterrupt(RCV_PIN), sig_rx, CHANGE);
+  return;
+}
+
+void get_dht()
+{
+  float hum, cels;
+  int chk;
+  sensor_data data;
+
+
+  chk = DHT.read22(DHT_PIN);
+  if (chk == DHTLIB_OK) {
+    hum = DHT.getHumidity();
+    cels = DHT.getTemperature();
+    Serial.print(F("Humidity: "));
+    Serial.print(hum);
+    Serial.print(F("%  Temperature: "));
+    Serial.print(cels);
+    Serial.println();
+
+    memset(&data, 0, sizeof(data));
+    data.channel = 0xF;
+    data.celsius = cels * 10;
+    data.humidity = hum * 10;
+    publish_data(&data);
+  }
+  else {
+    Serial.println("Failed to read DHT22");
+  }
+
+  return;
+}
+
+void loop()
 {
   static int count = 0;
+  static unsigned long last = 0;
+  unsigned long now, delta;
   uint64_t val;
 
 
   //mqtt_loop();
-  
+
+  now = millis();
+  delta = now - last;
+#if 0
+  if (delta > 30000) {
+    get_dht();
+    last = now;
+  }
+#endif
+
   if (received) {
     Serial.print("Count: ");
     Serial.print(count);
     Serial.print(" ");
-    Serial.print(millis());
+    Serial.print(now);
+    Serial.print(" ");
+    Serial.print(sync_type);
     Serial.println();
 
     if (sync_type == 1) {
@@ -279,6 +340,9 @@ void loop()
     val <<= sizeof(decode_buf[0]) * 8;
     val |= decode_buf[0];
 
+    print_bits();
+    Serial.println();
+
     {
       byte celsius_l, celsius_m, celsius_h;
       unsigned int checksum_calc = 0xAA55;
@@ -291,56 +355,58 @@ void loop()
       neg = 1;
       if (sync_type == 2) {
         tdata.device_id = val & 0xffff;
-        for (idx = (val >> 16) & 0xf, tdata.channel = 0; idx; tdata.channel++, idx >>= 1)
+        for (idx = (val >> 16) & 0x0F, tdata.channel = 0; idx; tdata.channel++, idx >>= 1)
           ;
         if (tdata.channel)
           tdata.channel--;
-       
+
         tdata.rolling_code = (val >> 20) & 0xff;
-        tdata.flags = (val >> 28) & 0xf;
+        tdata.flags = (val >> 28) & 0x0F;
 
         if (tdata.device_id == 0x04ce) {
-          celsius_l = (val >> 32) & 0xf;
-          celsius_m = (val >> 36) & 0xf;
-          celsius_h = (val >> 40) & 0xf;
-          if ((val >> 44) & 0xf)
+          celsius_l = (val >> 32) & 0x0F;
+          celsius_m = (val >> 36) & 0x0F;
+          celsius_h = (val >> 40) & 0x0F;
+          if ((val >> 44) & 0x0F)
             neg = -1;
 
           tdata.battery_low = (tdata.flags & 0x4) >> 2;
 
           tdata.checksum = (val >> 48) & 0xff;
           for (idx = checksum_calc = 0; idx < 48; idx += 4)
-            checksum_calc += (val >> idx) & 0xf;
+            checksum_calc += (val >> idx) & 0x0F;
           checksum_calc &= 0xff;
         }
       }
       else {
         tdata.device_id = 0;
-        tdata.rolling_code = val & 0xf;
-        
+        tdata.rolling_code = val & 0x0F;
+
         tdata.channel = (val >> 6) & 0x3;
-        
+
         tdata.flags = (val >> 4) & 0x3;
         tdata.flags <<= 4;
-        tdata.flags |= (val >> 20) & 0xf;
-        
-        celsius_l = (val >> 8) & 0xf;
-        celsius_m = (val >> 12) & 0xf;
-        celsius_h = (val >> 16) & 0xf;
+        tdata.flags |= (val >> 20) & 0x0F;
+
+        celsius_l = (val >> 8) & 0x0F;
+        celsius_m = (val >> 12) & 0x0F;
+        celsius_h = (val >> 16) & 0x0F;
         if (tdata.flags & 0x2)
           neg = -1;
-        
+
         tdata.battery_low = (tdata.flags & 0x8) >> 3;
 
         tdata.checksum = (val >> 24) & 0xff;
-        checksum_calc = (val & 0xFF) + ((val >> 8) & 0xff) + ((val >> 16) & 0xff);
-        checksum_calc &= 0xff;
+        checksum_calc = (val & 0xFF) + ((val >> 8) & 0xFF) + ((val >> 16) & 0xFF);
+        checksum_calc += 0xE2;
+        checksum_calc &= 0xFF;
       }
 
+      tdata.calculated_checksum = checksum_calc;
       tdata.celsius = celsius_h * 100 + celsius_m * 10 + celsius_l;
       tdata.celsius *= neg;
       fahrenheit = (tdata.celsius * 9 + 1602) / 5;
-      
+
       Serial.print("Temp: ");
       Serial.print(tdata.celsius / 10);
       Serial.print(".");
@@ -366,15 +432,11 @@ void loop()
       Serial.println();
       Serial.println();
 
-      if (tdata.checksum == checksum_calc) {
-        detachInterrupt(digitalPinToInterrupt(RCV_PIN));
-        enable_wifi();
-        publishTemperature(&tdata);
-        disable_wifi();
-        attachInterrupt(digitalPinToInterrupt(RCV_PIN), sig_rx, CHANGE);
+      if (1 || tdata.checksum == checksum_calc) {
+        publish_data(&tdata);
       }
     }
-    
+
     sync_idx = -1;
     received = 0;
     count++;
