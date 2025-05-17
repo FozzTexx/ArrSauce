@@ -1,0 +1,17 @@
+// -*- mode: C; indent-tabs-mode: nil -*-
+
+#ifndef CONFIG_H
+#define CONFIG_H
+
+#define PIN_433         13
+#define PIN_DHT22       21
+
+#define WIFI_SSID       "your WiFi SSD"
+#define WIFI_PASSWORD   "your WiFi password"
+
+#define MQTT_BROKER     "192.168.0.1"
+#define TOPIC           "arrsauce" // RSOS - get it?
+
+#define NTP_SERVER      MQTT_BROKER
+
+#endif /* CONFIG_H */

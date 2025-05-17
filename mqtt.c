@@ -12,13 +12,17 @@
 #include <PubSubClient.h>
 #include <time.h>
 
-#define WIFI_SSID       "fozztexx.com"
-#define WIFI_PASSWORD   "crazytreedog"
-
-#define MQTT_BROKER     "10.4.0.1"
-#define TOPIC           "arrsauce" // RSOS - get it?
-
-#define NTP_SERVER      MQTT_BROKER
+/* ---------------------------------------------------------------------
+ * User Configuration
+ *
+ * To get started:
+ * 1. Copy the file 'config.h.template' to 'config.h'
+ * 2. Open 'config.h' and fill in your WiFi credentials and other settings
+ *
+ * Note: 'config.h' is listed in '.gitignore', so it won't be tracked by Git.
+ * ---------------------------------------------------------------------
+ */
+#include "config.h"
 
 WiFiClient espClient;
 PubSubClient client(espClient);
@@ -77,7 +81,7 @@ void callback(const char *topic, const byte *message, unsigned int length)
   }
   Serial.println();
 
-  if (!qos1_received 
+  if (!qos1_received
       && length == strlen(qos1_message)
       && !strcmp(topic, qos1_topic)
       && !strncmp((const char *) message, qos1_message, length))
@@ -109,7 +113,7 @@ void printLocalTime()
 {
   struct tm timeinfo;
 
-  
+
   if (!getLocalTime(&timeinfo)) {
     Serial.println("Failed to obtain time");
     return;
@@ -169,7 +173,7 @@ boolean publish_qos1(const char *topic, const char *message)
   qos1_topic = topic;
   qos1_message = message;
   qos1_received = false;
-  
+
   for (retries = 10; retries; retries--) {
     rc = client.publish(qos1_topic, qos1_message);
     for (rcv_retries = 10; rcv_retries; rcv_retries--) {
@@ -183,7 +187,7 @@ boolean publish_qos1(const char *topic, const char *message)
     Serial.print("QOS retry ");
     Serial.println(retries);
   }
-  
+
   return false;
 }
 
@@ -205,7 +209,7 @@ void publishTemperature(sensor_data *tdata)
   uid |= tdata->rolling_code;
   uid <<= 16;
   uid |= tdata->device_id;
-  
+
   snprintf(buf, sizeof(buf),
            "{\"id\":\"%lX\""
            ",\"channel\":%i"
@@ -230,7 +234,7 @@ void publishTemperature(sensor_data *tdata)
   rc = publish_qos1(TOPIC "/data", buf);
   Serial.print("Publish: ");
   Serial.println(rc);
-  
+
   return;
 }
 
@@ -238,7 +242,7 @@ void enable_wifi()
 {
   if (WiFi.status() != WL_CONNECTED)
     setup_wifi();
-    
+
   if (!client.connected())
     reconnect();
 
@@ -249,6 +253,6 @@ void disable_wifi()
 {
   if (WiFi.status() == WL_CONNECTED)
     WiFi.disconnect();
-  
+
   return;
 }

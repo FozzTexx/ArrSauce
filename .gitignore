@@ -1,0 +1,6 @@
+config.h
+*~
+*.rej
+*.orig
+*.csv
+*.sal
