@@ -13,7 +13,7 @@
 
 #include <DHTStable.h>
 
-#define RCV_PIN   16
+#define RCV_PIN   13
 #define RINGLEN   256
 #define DELTA_MAX 300
 #define GAP       8000
@@ -398,7 +398,6 @@ void loop()
 
         tdata.checksum = (val >> 24) & 0xff;
         checksum_calc = (val & 0xFF) + ((val >> 8) & 0xFF) + ((val >> 16) & 0xFF);
-        checksum_calc += 0xE2;
         checksum_calc &= 0xFF;
       }
 
