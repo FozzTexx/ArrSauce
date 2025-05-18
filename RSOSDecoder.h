@@ -30,10 +30,12 @@ class RSOSDecoder
   uint32_t fullBit, halfBit;
   unsigned int state;
   bool synced;
-  uint64_t syncPattern;
-  unsigned int syncLength;
-  unsigned int bitPos;
+  uint64_t syncPattern, syncBuffer;
+  unsigned int syncLength, syncPos;
+  unsigned int nybble, nybblePos;
   unsigned int payloadLength;
+  uint8_t payloadBuffer[32];
+  unsigned int payloadBufferPos;
 
   bool near(uint32_t duration, uint32_t center, float percent);
 
@@ -41,13 +43,13 @@ class RSOSDecoder
   int pulse(uint32_t duration, bool level);
 
  public:
-  uint64_t data;
   bool hasPayload;
 
   RSOSDecoder(uint32_t duration, uint64_t pattern, unsigned int length);
   void reset();
   int received(uint32_t duration, bool level);
   unsigned int calculateChecksum();
+  void printPayloadHex();
 
   int decodeBCD(unsigned int val, unsigned int places, bool negative);
 };

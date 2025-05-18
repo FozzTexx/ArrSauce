@@ -11,9 +11,6 @@
  * This code is placed in the public domain (or CC0 licensed, at your option).
  */
 
-#include "RSOSDecoder.h"
-#include <DHTStable.h>
-
 /* ---------------------------------------------------------------------
  * User Configuration
  *
@@ -26,6 +23,11 @@
  */
 #include "config.h"
 
+
+#include "RSOSDecoder.h"
+#include "mqtt.h"
+#include <DHTStable.h>
+
 #define RINGLEN   256
 
 DHTStable DHT;
@@ -33,16 +35,9 @@ DHTStable DHT;
 uint32_t ringbuf[RINGLEN];
 unsigned int ringpos = 0, ringlast = 0;
 
-RSOSDecoder decoders[] = {RSOSDecoder(1000000 / 1024,  0xFFFFFF5, 17 * 4)};
-//RSOSDecoder decoders[] = {RSOSDecoder(1000000 / 342,  0xFFF, 8 * 4)};
+RSOSDecoder decoders[] = {RSOSDecoder(1000000 / 1024,  0xFFFFFF5, 17)};
+//RSOSDecoder decoders[] = {RSOSDecoder(1000000 / 342,  0xFFF, 8)};
 #define array_len(x)     (sizeof(x) / sizeof(x[0]))
-
-typedef struct {
-  byte channel, flags, battery_low;
-  int celsius, humidity;
-  unsigned int rolling_code, checksum, device_id;
-  unsigned int calculated_checksum;
-} sensor_data;
 
 void sig_rx()
 {
@@ -61,7 +56,7 @@ void sig_rx()
   }
   else {
     dur <<= 1;
-    dur |= digitalRead(RCV_PIN);
+    dur |= digitalRead(PIN_433);
     ringbuf[ringpos] = dur;
     ringpos = (ringpos + 1) % RINGLEN;
     merge_next = false;
@@ -75,24 +70,12 @@ void sig_rx()
 void setup()
 {
   Serial.begin(115200);
-  pinMode(RCV_PIN, INPUT);
+  pinMode(PIN_433, INPUT);
 
   while (!Serial)
     ;
 
   Serial.println("Started.");
-
-  Serial.println((uint64_t) 0xAAAA5555CCCC7777, HEX);
-
-  {
-    int idx;
-    uint64_t val;
-    for (idx = 0, val = 0; idx < 64; idx += 2) {
-      val <<= 2;
-      val |= 2;
-      Serial.println(val, HEX);
-    }
-  }
 
   setup_mqtt();
 
@@ -100,7 +83,7 @@ void setup()
   disable_wifi();
 
   // Must attach interrupt after WiFi is connected
-  attachInterrupt(digitalPinToInterrupt(RCV_PIN), sig_rx, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(PIN_433), sig_rx, CHANGE);
 
   return;
 }
@@ -120,11 +103,11 @@ void ring_dump(int idx, int len)
 
 void publish_data(sensor_data *data)
 {
-  detachInterrupt(digitalPinToInterrupt(RCV_PIN));
+  detachInterrupt(digitalPinToInterrupt(PIN_433));
   enable_wifi();
   publishTemperature(data);
   disable_wifi();
-  attachInterrupt(digitalPinToInterrupt(RCV_PIN), sig_rx, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(PIN_433), sig_rx, CHANGE);
   return;
 }
 
@@ -135,7 +118,7 @@ void get_dht()
   sensor_data data;
 
 
-  chk = DHT.read22(DHT_PIN);
+  chk = DHT.read22(PIN_DHT22);
   if (chk == DHTLIB_OK) {
     hum = DHT.getHumidity();
     cels = DHT.getTemperature();
@@ -189,7 +172,7 @@ void loop()
       decoder->received(ringbuf[ringlast] >> 1, ringbuf[ringlast] & 1);
       if (decoder->hasPayload) {
         Serial.print("Payload: 0x");
-        Serial.print((uint64_t) decoder->data, HEX);;
+        decoder->printPayloadHex();
         Serial.println();
 
         decoder->reset();

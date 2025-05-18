@@ -8,10 +8,6 @@
  * This code is placed in the public domain (or CC0 licensed, at your option).
  */
 
-#include <WiFi.h>
-#include <PubSubClient.h>
-#include <time.h>
-
 /* ---------------------------------------------------------------------
  * User Configuration
  *
@@ -23,6 +19,12 @@
  * ---------------------------------------------------------------------
  */
 #include "config.h"
+
+
+#include "mqtt.h"
+#include <WiFi.h>
+#include <PubSubClient.h>
+#include <time.h>
 
 WiFiClient espClient;
 PubSubClient client(espClient);

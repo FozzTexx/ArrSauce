@@ -41,8 +41,9 @@ bool RSOSDecoder::near(uint32_t duration, uint32_t center, float percent)
 void RSOSDecoder::reset()
 {
   synced = hasPayload = false;
-  data = 0;
-  bitPos = 0;
+  syncBuffer = 0;
+  payloadBufferPos = 0;
+  nybblePos = nybble = 0;
   return;
 }
 
@@ -86,52 +87,35 @@ int RSOSDecoder::received(uint32_t duration, bool level)
     return bit;
 
   if (!synced) {
-    data <<= 1;
-    data |= bit;
+    syncBuffer <<= 1;
+    syncBuffer |= bit;
     mask = (1 << syncLength) - 1;
-
-#if 0
-    Serial.print(duration);
-    Serial.print(" ");
-    Serial.println(fullBit);
-#endif
-
-    if ((data & mask) == syncPattern) {
+    if ((syncBuffer & mask) == syncPattern) {
 #if 1
       Serial.print("Sync length: 0x");
       Serial.print(mask, HEX);
       Serial.print(" ");
       Serial.print(syncPattern, HEX);
       Serial.print(" ");
-      Serial.print(data & mask, HEX);
+      Serial.print(syncBuffer & mask, HEX);
       Serial.print(" ");
       Serial.println(syncLength);
 #endif
-
-#if 0
-      Serial.print("Found sync: 0x");
-      Serial.print((unsigned long long) bits, HEX);
-#endif
-
-      data = 0;
-      bitPos = 0;
+      payloadBufferPos = 0;
+      nybblePos = nybble = 0;
       synced = true;
     }
   }
   else if (!hasPayload) {
-#if 0
-    Serial.print("Data length: 0x");
-    Serial.print((unsigned long long) bits, HEX);
-    Serial.print(" ");
-    Serial.print(payloadLength);
-    Serial.print(" ");
-    Serial.println(bitPos);
-#endif
-    data |= ((uint64_t) bit) << bitPos;
-    bitPos++;
-    if (bitPos == payloadLength) {
-      hasPayload = true;
+    nybble |= bit << nybblePos;
+    nybblePos++;
+    if (nybblePos == 4) {
+      payloadBuffer[payloadBufferPos] = nybble;
+      payloadBufferPos++;
+      nybblePos = nybble = 0;
     }
+    if (payloadBufferPos == payloadLength)
+      hasPayload = true;
   }
 
   return bit;
@@ -142,9 +126,19 @@ unsigned int RSOSDecoder::calculateChecksum()
   unsigned int checksum, idx;
 
 
-  for (checksum = 0, idx = payloadLength - 8; idx; idx -= 4)
-    checksum += (data >> idx) & 0x0f;
+  for (checksum = idx = 0; idx < payloadLength - 2; idx++)
+    checksum += payloadBuffer[idx];
   return checksum & 0xff;
+}
+
+void RSOSDecoder::printPayloadHex()
+{
+  unsigned int idx;
+
+
+  for (idx = payloadBufferPos; idx; idx--)
+    Serial.print(payloadBuffer[idx - 1], HEX);
+  return;
 }
 
 int RSOSDecoder::decodeBCD(unsigned int val, unsigned int places, bool negative)
