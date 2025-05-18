@@ -223,13 +223,14 @@ void publishTemperature(sensor_data *tdata)
            ",\"checksum\":%i"
            ",\"calculated_checksum\":%i"
            ",\"device_id\":%i"
+           ",\"version\":%i"
            ",\"timestamp\":\"%s\"}",
            uid, tdata->channel + 1,
            tdata->flags, tdata->battery_low ? "true" : "false",
            tdata->celsius / 10, abs(tdata->celsius % 10),
            tdata->humidity / 10, abs(tdata->humidity % 10),
            tdata->rolling_code, tdata->checksum, tdata->calculated_checksum,
-           tdata->device_id, tbuf);
+           tdata->device_id, tdata->version, tbuf);
   // Make sure there's always a terminating NULL
   buf[sizeof(buf)-1] = 0;
 
@@ -255,6 +256,47 @@ void disable_wifi()
 {
   if (WiFi.status() == WL_CONNECTED)
     WiFi.disconnect();
+
+  return;
+}
+
+void printSensorData(sensor_data *tdata)
+{
+  int fahrenheit = (tdata->celsius * 9 + 1602) / 5;
+
+
+  Serial.print("Temp: ");
+  Serial.print(tdata->celsius / 10);
+  Serial.print(".");
+  Serial.print(abs(tdata->celsius % 10));
+  Serial.print("C ");
+  Serial.print(fahrenheit / 10);
+  Serial.print(".");
+  Serial.print(abs(fahrenheit % 10));
+  Serial.print("F");
+
+  Serial.print("  Humidity: ");
+  Serial.print(tdata->humidity);
+  Serial.print("%");
+
+  Serial.print("  Channel: ");
+  Serial.print(tdata->channel + 1);
+  Serial.print("  Device: ");
+  Serial.print(tdata->device_id, HEX);
+  Serial.print("  Battery: ");
+  Serial.print(tdata->battery_low ? "low" : "good");
+  Serial.print("  Flags: 0b");
+  Serial.print(tdata->flags, BIN);
+  Serial.print("  RC: 0x");
+  Serial.print(tdata->rolling_code, HEX);
+  Serial.print("  Checksum: 0x");
+  Serial.print(tdata->checksum, HEX);
+  Serial.print(" 0x");
+  Serial.print(tdata->calculated_checksum, HEX);
+  Serial.print("  v");
+  Serial.print(tdata->version);
+  Serial.println();
+  Serial.println();
 
   return;
 }

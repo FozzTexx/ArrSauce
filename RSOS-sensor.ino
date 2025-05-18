@@ -175,6 +175,15 @@ void loop()
         decoder->printPayloadHex();
         Serial.println();
 
+        Serial.print("Checksum: 0x");
+        Serial.print(decoder->calculateChecksum(), HEX);
+        Serial.println();
+
+        {
+          sensor_data tdata = decoder->decodePayload();
+          printSensorData(&tdata);
+        }
+
         decoder->reset();
       }
     }

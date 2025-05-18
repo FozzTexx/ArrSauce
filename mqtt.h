@@ -16,6 +16,7 @@ typedef struct {
   int celsius, humidity;
   unsigned int rolling_code, checksum, device_id;
   unsigned int calculated_checksum;
+  unsigned int version;
 } sensor_data;
 
 extern void setup_wifi();
@@ -23,5 +24,7 @@ extern void setup_mqtt();
 extern void publishTemperature(sensor_data *tdata);
 extern void enable_wifi();
 extern void disable_wifi();
+
+extern void printSensorData(sensor_data *tdata);
 
 #endif /* MQTT_H */

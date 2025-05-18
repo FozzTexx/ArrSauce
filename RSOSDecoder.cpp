@@ -91,16 +91,6 @@ int RSOSDecoder::received(uint32_t duration, bool level)
     syncBuffer |= bit;
     mask = (1 << syncLength) - 1;
     if ((syncBuffer & mask) == syncPattern) {
-#if 1
-      Serial.print("Sync length: 0x");
-      Serial.print(mask, HEX);
-      Serial.print(" ");
-      Serial.print(syncPattern, HEX);
-      Serial.print(" ");
-      Serial.print(syncBuffer & mask, HEX);
-      Serial.print(" ");
-      Serial.println(syncLength);
-#endif
       payloadBufferPos = 0;
       nybblePos = nybble = 0;
       synced = true;
@@ -141,14 +131,14 @@ void RSOSDecoder::printPayloadHex()
   return;
 }
 
-int RSOSDecoder::decodeBCD(unsigned int val, unsigned int places, bool negative)
+int RSOSDecoder::decodeBCD(unsigned int pos, unsigned int places, bool negative)
 {
   int bcd;
   unsigned int idx, digit;
 
 
   for (bcd = 0, idx = places; idx; idx--) {
-    digit = (val >> (idx - 1) * 4) & 0x0f;
+    digit = payloadBuffer[pos + idx - 1];
     // FIXME - check if digit is 0-9?
     bcd *= 10;
     bcd += digit;
@@ -157,4 +147,36 @@ int RSOSDecoder::decodeBCD(unsigned int val, unsigned int places, bool negative)
     bcd = -bcd;
 
   return bcd;
+}
+
+unsigned int RSOSDecoder::decodeUnsigned(unsigned int pos, unsigned int width)
+{
+  unsigned int val, idx;
+
+
+  for (val = 0, idx = width; idx; idx--) {
+    val <<= 4;
+    val |= payloadBuffer[pos + idx - 1];
+  }
+
+  return val;
+}
+
+sensor_data RSOSDecoder::decodePayload()
+{
+  sensor_data decoded;
+
+
+  decoded.channel = payloadBuffer[4];
+  decoded.flags = (payloadBuffer[14] << 4) | payloadBuffer[7];
+  decoded.battery_low = !(decoded.flags & 0x04);
+  decoded.celsius = decodeBCD(8, 3, payloadBuffer[11]);
+  decoded.humidity = decodeBCD(12, 2, 0);
+  decoded.rolling_code = decodeUnsigned(5, 2);
+  decoded.checksum = decodeUnsigned(payloadLength - 2, 2);
+  decoded.calculated_checksum = calculateChecksum();
+  decoded.device_id = decodeUnsigned(0, 4) & 0xFFCF;
+  decoded.version = 3;
+
+  return decoded;
 }

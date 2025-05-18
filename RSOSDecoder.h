@@ -11,6 +11,7 @@
 #ifndef DECODER_H
 #define DECODER_H
 
+#include "mqtt.h"
 #include <stdint.h>
 
 enum {
@@ -50,8 +51,9 @@ class RSOSDecoder
   int received(uint32_t duration, bool level);
   unsigned int calculateChecksum();
   void printPayloadHex();
-
-  int decodeBCD(unsigned int val, unsigned int places, bool negative);
+  int decodeBCD(unsigned int pos, unsigned int places, bool negative);
+  unsigned int decodeUnsigned(unsigned int pos, unsigned int width);
+  sensor_data decodePayload();
 };
 
 #endif /* DECODER_H */
