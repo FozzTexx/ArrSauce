@@ -248,7 +248,7 @@ sensor_data RSOSv2::decodePayload()
   if (decoded.channel)
     decoded.channel--;
   decoded.flags = payloadBuffer[7];
-  decoded.battery_low = !(decoded.flags & 0x04);
+  decoded.battery_low = !!(decoded.flags & 0x04);
   decoded.celsius = decodeBCD(8, 3, payloadBuffer[11]);
   decoded.humidity = 0;
   decoded.rolling_code = decodeUnsigned(5, 2);
