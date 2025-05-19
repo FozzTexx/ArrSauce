@@ -184,7 +184,8 @@ void loop()
         {
           sensor_data tdata = decoder->decodePayload();
           printSensorData(&tdata);
-          publish_data(&tdata);
+          if (tdata.checksum == tdata.calculated_checksum)
+            publish_data(&tdata);
         }
 #endif /* WIFI_SSID */
 
