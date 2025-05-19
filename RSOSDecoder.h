@@ -30,30 +30,59 @@ class RSOSDecoder
  private:
   uint32_t fullBit, halfBit;
   unsigned int state;
-  bool synced;
   uint64_t syncPattern, syncBuffer;
   unsigned int syncLength, syncPos;
+
+  bool near(uint32_t duration, uint32_t center, float percent);
+
+ protected:
+  bool synced;
   unsigned int nybble, nybblePos;
   unsigned int payloadLength;
   uint8_t payloadBuffer[32];
   unsigned int payloadBufferPos;
 
-  bool near(uint32_t duration, uint32_t center, float percent);
-
- protected:
   int pulse(uint32_t duration, bool level);
 
  public:
   bool hasPayload;
 
   RSOSDecoder(uint32_t duration, uint64_t pattern, unsigned int length);
-  void reset();
-  int received(uint32_t duration, bool level);
-  unsigned int calculateChecksum();
   void printPayloadHex();
   int decodeBCD(unsigned int pos, unsigned int places, bool negative);
   unsigned int decodeUnsigned(unsigned int pos, unsigned int width);
+
+  virtual void reset();
+  virtual int received(uint32_t duration, bool level);
+  virtual unsigned int calculateChecksum();
+  virtual sensor_data decodePayload() = 0;
+};
+
+class RSOSv1 : public RSOSDecoder
+{
+ public:
+  RSOSv1();
+  unsigned int calculateChecksum() override;
+  sensor_data decodePayload() override;
+};
+
+class RSOSv2 : public RSOSDecoder
+{
+ private:
+  unsigned int payloadDup;
+
+ public:
+  RSOSv2();
+  void reset() override;
+  int received(uint32_t duration, bool level) override;
   sensor_data decodePayload();
+};
+
+class RSOSv3 : public RSOSDecoder
+{
+ public:
+  RSOSv3();
+  sensor_data decodePayload() override;
 };
 
 #endif /* DECODER_H */

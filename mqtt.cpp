@@ -32,6 +32,7 @@ PubSubClient client(espClient);
 const char *qos1_topic, *qos1_message;
 boolean qos1_received = false;
 
+#ifdef WIFI_SSID
 void setup_wifi()
 {
   int retries = 20;
@@ -39,9 +40,8 @@ void setup_wifi()
 
   delay(10);
 
-  Serial.println();
   Serial.print("Connecting to ");
-  Serial.println(WIFI_SSID);
+  Serial.print(WIFI_SSID);
 
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
@@ -56,16 +56,18 @@ void setup_wifi()
   }
 
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("");
-    Serial.println("WiFi connected");
-    Serial.println("IP address: ");
-    Serial.println(WiFi.localIP());
+    Serial.print(" WiFi connected");
+    Serial.print(" IP address: ");
+    Serial.print(WiFi.localIP());
   }
   else
     WiFi.disconnect();
 
+  Serial.print(" ");
+
   return;
 }
+#endif /* WIFI_SSID */
 
 void callback(const char *topic, const byte *message, unsigned int length)
 {
@@ -74,8 +76,7 @@ void callback(const char *topic, const byte *message, unsigned int length)
 
 
   Serial.print("Message arrived on topic: ");
-  Serial.print(topic);
-  Serial.print(". Message: ");
+  Serial.println(topic);
 
   for (i = 0; i < length; i++) {
     Serial.print((char) message[i]);
@@ -95,15 +96,15 @@ void callback(const char *topic, const byte *message, unsigned int length)
 void reconnect()
 {
   while (WiFi.status() == WL_CONNECTED && !client.connected()) {
-    Serial.print("Attempting MQTT connection...");
+    Serial.print("Attempting MQTT connection... ");
     if (client.connect("ArrSauce")) {
-      Serial.println("connected");
+      Serial.print("connected ");
       // For doing QOS 1
       client.subscribe(TOPIC "/data");
     } else {
       Serial.print("failed, rc=");
       Serial.print(client.state());
-      Serial.println(" try again in 0.5 seconds");
+      Serial.print(" try again in 0.5 seconds ");
       delay(500);
     }
   }
@@ -150,6 +151,7 @@ void printLocalTime()
   return;
 }
 
+#ifdef WIFI_SSID
 void setup_mqtt()
 {
   Serial.println("Setting up mqtt");
@@ -165,6 +167,7 @@ void setup_mqtt()
   }
   return;
 }
+#endif /* WIFI_SSID */
 
 boolean publish_qos1(const char *topic, const char *message)
 {
@@ -176,19 +179,21 @@ boolean publish_qos1(const char *topic, const char *message)
   qos1_message = message;
   qos1_received = false;
 
+  Serial.print("Publishing");
   for (retries = 10; retries; retries--) {
     rc = client.publish(qos1_topic, qos1_message);
     for (rcv_retries = 10; rcv_retries; rcv_retries--) {
       client.loop();
       if (qos1_received)
         return true;
-      Serial.print("QOS RX retry ");
-      Serial.println(rcv_retries);
+      Serial.print(".");
+      //Serial.println(rcv_retries);
       delay(100);
     }
-    Serial.print("QOS retry ");
-    Serial.println(retries);
+    Serial.print("-");
+    //Serial.println(retries);
   }
+  Serial.print(" ");
 
   return false;
 }
@@ -241,6 +246,7 @@ void publishTemperature(sensor_data *tdata)
   return;
 }
 
+#ifdef WIFI_SSID
 void enable_wifi()
 {
   if (WiFi.status() != WL_CONNECTED)
@@ -259,12 +265,14 @@ void disable_wifi()
 
   return;
 }
+#endif /* WIFI_SSID */
 
 void printSensorData(sensor_data *tdata)
 {
   int fahrenheit = (tdata->celsius * 9 + 1602) / 5;
 
 
+  // FIXME - print time if WIFI_SSID and NTP_SERVER
   Serial.print("Temp: ");
   Serial.print(tdata->celsius / 10);
   Serial.print(".");
@@ -276,7 +284,9 @@ void printSensorData(sensor_data *tdata)
   Serial.print("F");
 
   Serial.print("  Humidity: ");
-  Serial.print(tdata->humidity);
+  Serial.print(tdata->humidity / 10);
+  Serial.print(".");
+  Serial.print(abs(tdata->humidity % 10));
   Serial.print("%");
 
   Serial.print("  Channel: ");

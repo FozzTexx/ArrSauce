@@ -35,8 +35,7 @@ DHTStable DHT;
 uint32_t ringbuf[RINGLEN];
 unsigned int ringpos = 0, ringlast = 0;
 
-RSOSDecoder decoders[] = {RSOSDecoder(1000000 / 1024,  0xFFFFFF5, 17)};
-//RSOSDecoder decoders[] = {RSOSDecoder(1000000 / 342,  0xFFF, 8)};
+RSOSDecoder *decoders[] = {new RSOSv1(), new RSOSv2(), new RSOSv3()};
 #define array_len(x)     (sizeof(x) / sizeof(x[0]))
 
 void sig_rx()
@@ -77,10 +76,12 @@ void setup()
 
   Serial.println("Started.");
 
+#ifdef WIFI_SSID
   setup_mqtt();
 
   // WiFi enabled causes so much interference that sensor signal can't be received
   disable_wifi();
+#endif /* WIFI_SSID */
 
   // Must attach interrupt after WiFi is connected
   attachInterrupt(digitalPinToInterrupt(PIN_433), sig_rx, CHANGE);
@@ -101,6 +102,7 @@ void ring_dump(int idx, int len)
   return;
 }
 
+#ifdef WIFI_SSID
 void publish_data(sensor_data *data)
 {
   detachInterrupt(digitalPinToInterrupt(PIN_433));
@@ -110,7 +112,9 @@ void publish_data(sensor_data *data)
   attachInterrupt(digitalPinToInterrupt(PIN_433), sig_rx, CHANGE);
   return;
 }
+#endif /* WIFI_SSID */
 
+#ifdef PIN_DHT22
 void get_dht()
 {
   float hum, cels;
@@ -140,6 +144,7 @@ void get_dht()
 
   return;
 }
+#endif /* PIN_DHT22 */
 
 void loop()
 {
@@ -155,20 +160,16 @@ void loop()
 
   now = millis();
   delta = now - last;
-#if 0
+#ifdef PIN_DHT22
   if (delta > 30000) {
     get_dht();
     last = now;
   }
-#endif
+#endif /* PIN_DHT22 */
 
   while (ringlast != ringpos) {
     for (idx = 0; idx < array_len(decoders); idx++) {
-#if 0
-      Serial.print("Pulse: ");
-      Serial.println(ringbuf[ringlast]);
-#endif
-      decoder = &decoders[idx];
+      decoder = decoders[idx];
       decoder->received(ringbuf[ringlast] >> 1, ringbuf[ringlast] & 1);
       if (decoder->hasPayload) {
         Serial.print("Payload: 0x");
@@ -179,10 +180,13 @@ void loop()
         Serial.print(decoder->calculateChecksum(), HEX);
         Serial.println();
 
+#ifdef WIFI_SSID
         {
           sensor_data tdata = decoder->decodePayload();
           printSensorData(&tdata);
+          publish_data(&tdata);
         }
+#endif /* WIFI_SSID */
 
         decoder->reset();
       }

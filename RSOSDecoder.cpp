@@ -89,7 +89,9 @@ int RSOSDecoder::received(uint32_t duration, bool level)
   if (!synced) {
     syncBuffer <<= 1;
     syncBuffer |= bit;
-    mask = (1 << syncLength) - 1;
+    mask = 1;
+    mask <<= syncLength;
+    mask -= 1;
     if ((syncBuffer & mask) == syncPattern) {
       payloadBufferPos = 0;
       nybblePos = nybble = 0;
@@ -162,7 +164,108 @@ unsigned int RSOSDecoder::decodeUnsigned(unsigned int pos, unsigned int width)
   return val;
 }
 
-sensor_data RSOSDecoder::decodePayload()
+RSOSv1::RSOSv1(): RSOSDecoder(1000000 / 342, 0xFFF, 8)
+{
+  return;
+}
+
+unsigned int RSOSv1::calculateChecksum()
+{
+  unsigned int checksum, idx;
+
+
+  for (idx = 0; idx < payloadLength - 2; idx += 2)
+    checksum += decodeUnsigned(idx, 2);
+  return checksum & 0xff;
+}
+
+sensor_data RSOSv1::decodePayload()
+{
+  sensor_data decoded;
+
+
+  decoded.channel = payloadBuffer[1] >> 2;
+  decoded.flags = ((payloadBuffer[1] & 0x03) << 4) | payloadBuffer[5];
+  decoded.battery_low = !!(decoded.flags & 0x08);
+  decoded.celsius = decodeBCD(2, 3, decoded.flags & 0x2);
+  decoded.humidity = 0;
+  decoded.rolling_code = payloadBuffer[0];
+  decoded.checksum = decodeUnsigned(payloadLength - 2, 2);
+  decoded.calculated_checksum = calculateChecksum();
+  decoded.device_id = 0;
+  decoded.version = 1;
+
+  return decoded;
+}
+
+RSOSv2::RSOSv2(): RSOSDecoder(1000000 / 1024, 0x2AAAAAAAB33, 14)
+{
+  return;
+}
+
+void RSOSv2::reset()
+{
+  RSOSDecoder::reset();
+  return;
+}
+
+#define COMPACT_EVEN_BITS(x) ( \
+                               (((x) >> 0) & 0x01) |    \
+                               (((x) >> 1) & 0x02) |    \
+                               (((x) >> 2) & 0x04) |    \
+                               (((x) >> 3) & 0x08) )
+
+int RSOSv2::received(uint32_t duration, bool level)
+{
+  int bit;
+  unsigned int idx;
+  uint32_t val;
+
+
+  bit = RSOSDecoder::received(duration, level);
+  /* The v2 sensors send every bit twice, first normal and the second
+       copy is inverted. Read in twice as many nibbles and then
+       de-interlace the bits we want. */
+  if (synced) {
+    hasPayload = payloadBufferPos == payloadLength * 2;
+    if (hasPayload) {
+      for (idx = 0; idx < payloadLength; idx++)
+        payloadBuffer[idx] = COMPACT_EVEN_BITS(decodeUnsigned(idx * 2, 2));
+      payloadBufferPos = payloadLength;
+    }
+  }
+
+  return bit;
+}
+
+sensor_data RSOSv2::decodePayload()
+{
+  sensor_data decoded;
+  unsigned int val;
+
+
+  decoded.channel = bit_length(payloadBuffer[4]);
+  if (decoded.channel)
+    decoded.channel--;
+  decoded.flags = payloadBuffer[7];
+  decoded.battery_low = !(decoded.flags & 0x04);
+  decoded.celsius = decodeBCD(8, 3, payloadBuffer[11]);
+  decoded.humidity = 0;
+  decoded.rolling_code = decodeUnsigned(5, 2);
+  decoded.checksum = decodeUnsigned(payloadLength - 2, 2);
+  decoded.calculated_checksum = calculateChecksum();
+  decoded.device_id = decodeUnsigned(0, 4) & 0xFFCF;
+  decoded.version = 2;
+
+  return decoded;
+}
+
+RSOSv3::RSOSv3(): RSOSDecoder(1000000 / 1024, 0xFFFFFF5, 17)
+{
+  return;
+}
+
+sensor_data RSOSv3::decodePayload()
 {
   sensor_data decoded;
 
@@ -171,7 +274,7 @@ sensor_data RSOSDecoder::decodePayload()
   decoded.flags = (payloadBuffer[14] << 4) | payloadBuffer[7];
   decoded.battery_low = !(decoded.flags & 0x04);
   decoded.celsius = decodeBCD(8, 3, payloadBuffer[11]);
-  decoded.humidity = decodeBCD(12, 2, 0);
+  decoded.humidity = decodeBCD(12, 2, 0) * 10;
   decoded.rolling_code = decodeUnsigned(5, 2);
   decoded.checksum = decodeUnsigned(payloadLength - 2, 2);
   decoded.calculated_checksum = calculateChecksum();
